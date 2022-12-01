@@ -1,43 +1,65 @@
 //
-//  UICollectionView+Refresh.swift
+//  RefreshCollectionView.swift
 //  RefreshCollectionProject
 //
-//  Created by grkim on 2022/11/24.
+//  Created by grkim on 2022/11/28.
 //
 
 import UIKit
 
-fileprivate let kDefaultTriggerRefreshVerticalOffset: CGFloat = 120
-let kMinRefershTime: CGFloat = 0.5
+private let kIndicatorWidth: CGFloat = 50
+private let kIndicatorHeight: CGFloat = 50
+
+private let kBottomAnimateTimeSecond: Int = 1
+
+private let kMinBottomViewHeight: CGFloat = kIndicatorHeight + 10
+private let kMaxBottomViewHeight: CGFloat = kDefaultTriggerRefreshVerticalOffset
+private let kMaxBottomViewTrackingHeight: CGFloat = kDefaultTriggerRefreshVerticalOffset * 2
+
+private let kDefaultTriggerRefreshVerticalOffset: CGFloat = 100
 
 class RefreshCollectionView: UICollectionView {
-    // Context
-    private lazy var tableView: UITableView = UITableView(frame: .zero, style: .plain)
-    private var beginRefreshingDate: Date?
-    private var adjustBottomInset: Bool?
-    private var wasTracking: Bool?
-    private var refreshed: Bool?
-    // end
-    
-    var btRefreshControl: BottomRefreshControl? {
-        didSet {
-            if let _ = self.btRefreshControl {
-                self.btRefreshControl?.delegate = self
-                self.initTableView()
+    private var _refresher: UIRefreshControl?
+    var refresher: UIRefreshControl {
+        get {
+            if let refresher = _refresher {
+                return refresher
+            } else {
+                let refresher = UIRefreshControl()
+                refresher.backgroundColor = .clear
+                refresher.tintColor = .black
+                
+                let indicator = UIActivityIndicatorView(style: .large)
+                refresher.addSubview(indicator)
+                
+                _refresher = refresher
+                
+                return refresher
             }
         }
     }
     
-    // MARK: - Init
-    convenience init() {
-        let layout = UICollectionViewFlowLayout()
-        layout.minimumLineSpacing = 10
-        layout.scrollDirection = .vertical
-        layout.sectionInset = UIEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
-        self.init(frame: .zero, collectionViewLayout: layout)
-        self.initView()
+    var bottomView = UIView()
+    private var bottomIndicatorView = UIActivityIndicatorView(style: .large)
+    
+    private var defaultCotentInset: UIEdgeInsets = .zero
+    private var defaultIndicatorHeight: CGFloat = 0
+    private var bottomViewHeight: NSLayoutConstraint?
+    private var wasTracking: Bool = false
+    
+    var isAnimating: Bool = false
+    
+    var isBottomAnimating: Bool {
+        self.bottomIndicatorView.isAnimating
     }
     
+    var maxContentOffset: CGPoint {
+        CGPoint(
+            x: self.contentSize.width - self.bounds.width + self.contentInset.right,
+            y: self.contentSize.height - self.bounds.height + defaultCotentInset.bottom)
+    }
+    
+    // MARK: init
     required init?(coder: NSCoder) {
         super.init(coder: coder)
         self.initView()
@@ -48,222 +70,132 @@ class RefreshCollectionView: UICollectionView {
         self.initView()
     }
     
+    override func awakeFromNib() {
+        super.awakeFromNib()
+        self.initView()
+    }
+    
     func initView() {
-        self.wasTracking = self.isTracking
-        self.refreshed = false
-    }
-    
-    func initTableView() {
-        self.tableView.removeFromSuperview()
-        self.tableView = UITableView(frame: .zero, style: .plain)
+        self.refreshControl = self.refresher
+        self.defaultCotentInset = self.contentInset
         
-        guard let btRefreshControl = self.btRefreshControl else { return }
+        self.bottomView = UIView(frame: CGRect(x: 0, y: 0, width: self.bounds.width, height: kMinBottomViewHeight))
+        self.bottomView.isUserInteractionEnabled = false
+        self.bottomView.isHidden = true
         
-        self.tableView.isUserInteractionEnabled = false
-        self.tableView.backgroundColor = .clear
-        self.tableView.separatorStyle = .none
-        self.tableView.transform = CGAffineTransformMakeRotation(.pi)
-        self.tableView.backgroundColor = UIColor(red: drand48(), green: drand48(), blue: drand48(), alpha: 0.5)
-        self.tableView.addSubview(btRefreshControl)
+        self.bottomIndicatorView.color = .black
+        self.bottomIndicatorView.hidesWhenStopped = false
         
-        if let _ = self.superview {
-            self.insertTableView()
-        }
-    }
-    
-    func insertTableView() {
-        self.superview?.insertSubview(self.tableView, aboveSubview: self)
-
-        self.tableView.translatesAutoresizingMaskIntoConstraints = false
+        self.bottomView.addSubview(self.bottomIndicatorView)
         
-        let left = NSLayoutConstraint(item: tableView, attribute: .left, relatedBy: .equal, toItem: self, attribute: .left, multiplier: 1.0, constant: 0.0)
-        let right = NSLayoutConstraint(item: tableView, attribute: .right, relatedBy: .equal, toItem: self, attribute: .right, multiplier: 1.0, constant: 0.0)
-        let bottom = NSLayoutConstraint(item: tableView, attribute: .bottom, relatedBy: .equal, toItem: self, attribute: .bottom, multiplier: 1.0, constant: -self.contentInset.bottom)
-        let height = NSLayoutConstraint(item: tableView, attribute: .height, relatedBy: .equal, toItem: nil, attribute: .notAnAttribute, multiplier: 1.0, constant: kDefaultTriggerRefreshVerticalOffset)
+        // Bottom Indicator LayoutConstraint
+        self.bottomIndicatorView.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            self.bottomIndicatorView.centerXAnchor.constraint(equalTo: self.bottomView.centerXAnchor),
+            self.bottomIndicatorView.centerYAnchor.constraint(equalTo: self.bottomView.centerYAnchor),
+            self.bottomIndicatorView.widthAnchor.constraint(equalToConstant: kIndicatorWidth),
+            self.bottomIndicatorView.heightAnchor.constraint(equalToConstant: kMinBottomViewHeight)
+        ])
+        self.superview?.insertSubview(self.bottomView, belowSubview: self)
         
-        tableView.addConstraint(height)
+        // Bottom LayoutConstraint
+        self.bottomView.translatesAutoresizingMaskIntoConstraints = false
+        let left = NSLayoutConstraint(item: self.bottomView, attribute: .left, relatedBy: .equal, toItem: self, attribute: .left, multiplier: 1.0, constant: 0.0)
+        let right = NSLayoutConstraint(item: self.bottomView, attribute: .right, relatedBy: .equal, toItem: self, attribute: .right, multiplier: 1.0, constant: 0.0)
+        let bottom = NSLayoutConstraint(item: self.bottomView, attribute: .bottom, relatedBy: .equal, toItem: self, attribute: .bottom, multiplier: 1.0, constant: -defaultCotentInset.bottom)
+        let height = NSLayoutConstraint(item: self.bottomView, attribute: .height, relatedBy: .equal, toItem: nil, attribute: .notAnAttribute, multiplier: 1.0, constant: kMinBottomViewHeight)
+        
+        self.bottomViewHeight = height
+        self.bottomView.addConstraint(height)
         self.superview?.addConstraints([left, right, bottom])
     }
     
-    func checkRefreshingTimeAndPerformBlock(_ block: @escaping ()->()) {
-        if let date = self.beginRefreshingDate {
-            let timeSinceLastRefresh = Date().timeIntervalSince(date)
-            if timeSinceLastRefresh > kMinRefershTime {
-                block()
+    func changedContentOffset() {
+        self.startAnimating()
+        
+        if self.contentOffset.y <= (self.maxContentOffset.y + kMinBottomViewHeight), !self.bottomIndicatorView.isAnimating {
+            self.hideBottomView()
+        } else {
+            if self.wasTracking, !self.isTracking, !self.bottomView.isHidden {
+                self.animateChangeInset(kMinBottomViewHeight)
+            }
+            
+            var height = max((self.contentOffset.y - self.maxContentOffset.y), kMinBottomViewHeight)
+            if self.isTracking {
+                height = min(height, kMaxBottomViewTrackingHeight)
             } else {
-                let delayInSeconds = DispatchTime.now() + .milliseconds(Int(kMinRefershTime - timeSinceLastRefresh))
-                DispatchQueue.main.asyncAfter(deadline: delayInSeconds, execute: block)
+                height = min(height, kMaxBottomViewHeight)
             }
-        } else {
-            block()
-        }
-    }
-    
-    func handleBottomBounceOffset(_ offset: CGFloat) {
-        guard let btRefreshControl = self.btRefreshControl, let refreshed = self.refreshed else {
-            return
-        }
-        
-        var contentOffset = self.tableView.contentOffset
-        let triggerOffset = btRefreshControl.triggerVerticalOffset2
-        
-        if !refreshed, (!self.isDecelerating || contentOffset.y < 0) {
-            if offset < triggerOffset {
-                contentOffset.y = -offset*kDefaultTriggerRefreshVerticalOffset/triggerOffset/1.5
-                self.tableView.contentOffset = contentOffset
-            } else if !btRefreshControl.isRefreshing {
-                self.startRefresh()
-            }
-        }
-    }
-    
-    func startRefresh() {
-        self.beginRefreshingDate = Date()
-        
-        self.btRefreshControl?.beginRefreshing()
-        self.btRefreshControl?.sendActions(for: .valueChanged)
-        
-        if let adjustBottomInset = self.adjustBottomInset,
-           !self.isTracking, !adjustBottomInset {
-            self.setAdjustBottomInset(true, animated: true)
-        }
-    }
-    
-    func stopRefresh() {
-        self.wasTracking = self.isTracking
-        
-        if let adjustBottomInset = self.adjustBottomInset,
-           !self.isTracking, adjustBottomInset {
-            DispatchQueue.main.async {
-                self.setAdjustBottomInset(false, animated: true)
-            }
-        }
-        
-        self.refreshed = self.isTracking
-    }
-    
-    func didEndTracking() {
-        guard let btRefreshControl = self.btRefreshControl else { return }
-        if let adjustBottomInset = self.adjustBottomInset,
-            btRefreshControl.isRefreshing, !adjustBottomInset {
-            self.setAdjustBottomInset(true, animated: true)
-        }
-        
-        if let adjustBottomInset = self.adjustBottomInset,
-           adjustBottomInset, !btRefreshControl.isRefreshing {
-            self.setAdjustBottomInset(false, animated: true)
-        }
-    }
-    
-    func setAdjustBottomInset(_ adjust: Bool, animated: Bool) {
-        let contentInset = self.contentInset
-        self.adjustBottomInset = adjust
-        
-        let duration = animated ? 0 : kMinRefershTime
-        UIView.animate(withDuration: TimeInterval(duration)) {
-            self.contentInset = contentInset
-        }
-    }
-    
-    // MARK: Override
-    override func updateConstraints() {
-        if let superView = self.superview {
-            if let idx = superView.constraints.firstIndex(where: { constraint in
-                return (constraint.firstItem as? UITableView == self.tableView) && (constraint.secondItem as? UICollectionView == self) && (constraint.firstAttribute == .bottom)
-            }) {
-                superView.constraints[idx].constant = -contentInset.bottom
-            }
-        }
-        
-        super.updateConstraints()
-    }
-    
-    override func didMoveToSuperview() {
-        super.didMoveToSuperview()
-        
-        guard let _ = self.btRefreshControl else { return }
-        
-        if let _ = self.superview {
-            self.insertTableView()
-        } else {
-            self.tableView.removeFromSuperview()
-        }
-    }
-    
-    override var contentInset: UIEdgeInsets {
-        get {
-            var insets = super.contentInset
+            self.bottomViewHeight?.constant = height
             
-            if let adjustBottomInset = self.adjustBottomInset, adjustBottomInset {
-                insets.bottom = insets.bottom - (self.btRefreshControl?.frame.size.height ?? 0)
-            }
+            self.showBottomView()
             
-            return insets
-        }
-        set {
-            var insets = newValue
-            var updateConstraints = false
-
-            if let adjustBottomInset = self.adjustBottomInset, adjustBottomInset {
-                updateConstraints = true
-                insets.bottom = insets.bottom + (self.btRefreshControl?.frame.size.height ?? 0)
-            }
-            
-            super.contentInset = insets
-            
-            if updateConstraints {
-                self.setNeedsUpdateConstraints()
-            }
+            self.wasTracking = self.isTracking
         }
     }
     
-    func refresh_setContentOffset(_ contentOffset: CGPoint, animated: Bool) {
-//        guard let wasTracking = self.wasTracking else { return }
-//
-//        if wasTracking, !self.isTracking {
-//            self.didEndTracking()
-//        }
-//
-//        self.wasTracking = self.isTracking
-//
-//        let contentInset = self.contentInset
-//        let height = self.frame.size.height
-//
-//        let offset = (contentOffset.y + contentInset.top + height) - max((self.contentSize.height + contentInset.bottom + contentInset.top), height)
-//
-//        if offset > 0 {
-//            self.handleBottomBounceOffset(offset)
-//        } else {
-//            self.refreshed = false
-//        }
-        self.tableView.setContentOffset(contentOffset, animated: true)
-    }
-}
-
-// MARK: BottomRefreshControlDelegate
-extension RefreshCollectionView: BottomRefreshControlDelegate {
-    func didEndRefreshing() {
-        self.checkRefreshingTimeAndPerformBlock {
-            self.btRefreshControl?.endRefreshing()
-            self.stopRefresh()
+    // MARK: Refresh Control
+    func hideRefreshControl() {
+        if self.refresher.isRefreshing {
+            self.refresher.endRefreshing()
+            self.isAnimating = false
         }
     }
-}
-
-// MARK: class BottomRefreshControl
-protocol BottomRefreshControlDelegate {
-    func didEndRefreshing()
-}
-
-class BottomRefreshControl: UIRefreshControl {
-    var delegate: BottomRefreshControlDelegate?
-    var triggerVerticalOffset2: CGFloat = kDefaultTriggerRefreshVerticalOffset
     
-    override func endRefreshing() {
-        if let delegate = self.delegate {
-            delegate.didEndRefreshing()
-        } else {
-            super.endRefreshing()
+    private func startAnimating() {
+        if self.refresher.isRefreshing, !self.refresher.isHidden, self.isTracking {
+            self.isAnimating = true
         }
+    }
+    
+    // MARK: Bottom View
+    func showBottomView() {
+        var showBottomView = self.contentOffset.y >= self.maxContentOffset.y + kMinBottomViewHeight
+        
+        if showBottomView, (self.wasTracking && !self.isTracking) {
+            showBottomView = self.contentSize.height + defaultCotentInset.top + defaultCotentInset.bottom + self.defaultIndicatorHeight >= self.bounds.height
+        }
+        
+        if self.contentOffset.y <= 0 {
+            showBottomView = false
+        }
+        
+        if !self.isTracking {
+            showBottomView = false
+        }
+        
+        if showBottomView {
+            self.bottomView.isHidden = false
+            self.startBottomAnimating()
+        }
+    }
+    
+    func hideBottomView() {
+        self.bottomView.isHidden = true
+        self.stopBottomAnimating()
+        
+        if self.contentInset.bottom != self.defaultCotentInset.bottom {
+            self.animateChangeInset(self.defaultCotentInset.bottom)
+        }
+    }
+    
+    // MARK: Content Insets - Bottom Change Animating
+    private func animateChangeInset(_ bottom: CGFloat) {
+        let newInsets = UIEdgeInsets(top: self.defaultCotentInset.top, left: self.defaultCotentInset.left, bottom: bottom, right: self.defaultCotentInset.right)
+        
+        UIView.animate(withDuration: 0.5) {
+            self.contentInset = newInsets
+        }
+    }
+    
+    // MARK: Bottom Indicator Animating
+    private func startBottomAnimating() {
+        if self.contentOffset.y >= self.maxContentOffset.y + kDefaultTriggerRefreshVerticalOffset {
+            self.bottomIndicatorView.startAnimating()
+        }
+    }
+    
+    private func stopBottomAnimating() {
+        self.bottomIndicatorView.stopAnimating()
     }
 }
