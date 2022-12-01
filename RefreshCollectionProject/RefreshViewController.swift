@@ -53,7 +53,7 @@ extension RefreshViewController: UICollectionViewDelegate {
 // MARK: UICollectionViewDataSource
 extension RefreshViewController: UICollectionViewDataSource {
     func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
-        return 2
+        return 10
     }
     
     func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
