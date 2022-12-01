@@ -1,5 +1,5 @@
 # RefreshCollectionProject
-Global Bottom Indicator을 지원하기 위한 UICollectionView
+Global Bottom Indicator을 지원하기 위한 Custom UICollectionView
 
 현재 버전으로 Scroll Direction - Vertical만 지원
 
