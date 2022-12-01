@@ -28,7 +28,6 @@
 		C82EE672292F0A8600449784 /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		C82EE674292F0A8600449784 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		C82EE67C292F399A00449784 /* CollectionViewCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CollectionViewCell.swift; sourceTree = "<group>"; };
-		C85F94DF29305ECD006AB285 /* RefreshCollectionProject-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "RefreshCollectionProject-Bridging-Header.h"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -70,7 +69,6 @@
 				C82EE66F292F0A8600449784 /* Assets.xcassets */,
 				C82EE671292F0A8600449784 /* LaunchScreen.storyboard */,
 				C82EE674292F0A8600449784 /* Info.plist */,
-				C85F94DF29305ECD006AB285 /* RefreshCollectionProject-Bridging-Header.h */,
 			);
 			path = RefreshCollectionProject;
 			sourceTree = "<group>";
